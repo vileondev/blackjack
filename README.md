@@ -3,7 +3,9 @@
 Blackjack no navegador, mobile first, que funciona offline (PWA) e guarda tudo no aparelho.
 
 ## Como jogar
-1. Na primeira vez, defina o **dinheiro inicial**, a **quantidade de baralhos** (1 a 8) e quando o sapato é embaralhado.
+Ao abrir o app aparece o **menu inicial**: **Continuar** (volta para a partida salva), **Novo jogo** e **Estatísticas** (partida atual e todas as partidas).
+
+1. Em Novo jogo, defina o **dinheiro inicial**, a **quantidade de baralhos** (1 a 8) e quando o sapato é embaralhado.
 2. Antes de cada rodada, faça a aposta (digite o valor ou toque nas fichas).
 3. Jogue com **Hit**, **Stand**, **Double** e **Split**. Double e Split só aparecem quando estão disponíveis.
 
@@ -20,10 +22,12 @@ Blackjack no navegador, mobile first, que funciona offline (PWA) e guarda tudo n
 - Adicionar ou definir dinheiro, ganhar a rodada atual, armar blackjack na próxima mão.
 - Ver a carta virada da mesa, ver as próximas cartas do sapato e escolher a próxima carta.
 - Contagem Hi-Lo (running count e true count), cartas não vistas por valor e dica de estratégia básica.
-- Efeitos sonoros (gerados no navegador, funcionam offline), estatísticas e novo jogo.
+- Efeitos sonoros (gerados no navegador, funcionam offline), estatísticas, menu inicial e novo jogo.
+
+Quando a banca zera, aparece a tela de fim de jogo com o botão **Iniciar novo jogo**.
 
 ## Offline e salvamento
-- Tudo (banca, sapato, rodada em andamento e opções) fica no `localStorage` do aparelho.
+- Tudo (banca, sapato, rodada em andamento e opções) fica no `localStorage` do aparelho. As estatísticas de todas as partidas ficam em `blackjack:life:v1`.
 - O `sw.js` guarda os arquivos do jogo para abrir sem internet. **Ao mudar qualquer arquivo, aumente `VERSION` no `sw.js`.**
 - Para instalar: abra o site no celular e use "Adicionar à tela inicial" (iPhone: Safari → Compartilhar; Android: menu do Chrome → Instalar app).
 

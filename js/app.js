@@ -5,11 +5,22 @@ import {
 import * as sound from './sound.js';
 
 const KEY = 'blackjack:v1';
+const LIFE_KEY = 'blackjack:life:v1';
 const MAX_HANDS = 4;
 const $ = (s, c = document) => c.querySelector(s);
 const $$ = (s, c = document) => [...c.querySelectorAll(s)];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const round2 = (n) => Math.round(n * 100) / 100;
+
+/* ---------------- Estatísticas gerais (todas as partidas) ---------------- */
+const LIFE0 = { games: 0, gamesLost: 0, hands: 0, wins: 0, losses: 0, pushes: 0, bj: 0, busts: 0, splits: 0, doubles: 0, best: 0, biggestWin: 0, won: 0, lost: 0 };
+let L = loadLife();
+function loadLife() {
+  try { return { ...LIFE0, ...JSON.parse(localStorage.getItem(LIFE_KEY) || '{}') }; } catch { return { ...LIFE0 }; }
+}
+function saveLife() {
+  try { localStorage.setItem(LIFE_KEY, JSON.stringify(L)); } catch { /* ignore */ }
+}
 
 /* ---------------- Estado e armazenamento local ---------------- */
 let S = null;          // estado salvo
@@ -208,6 +219,7 @@ async function double() {
   if (!canAct() || !canDouble()) return;
   const h = hand();
   S.money = round2(S.money - h.bet); h.bet *= 2; h.doubled = true;
+  L.doubles++; saveLife();
   sound.play('chip'); bump('down');
   h.cards.push(draw()); sound.play('card'); save(); render();
   busy = true; await sleep(500); busy = false;
@@ -223,6 +235,7 @@ async function split() {
   const second = h.cards.pop();
   h.split = true; h.aces = aces;
   S.hands.splice(S.cur + 1, 0, newHand([second], h.bet, { split: true, aces }));
+  L.splits++; saveLife();
   sound.play('chip'); bump('down');
   busy = true; save(); render(); await sleep(350);
   h.cards.push(draw()); sound.play('card'); save(); render();
@@ -265,6 +278,19 @@ function finish(forced) {
     if (r.outcome === 'push') st.pushes++;
   });
   st.best = Math.max(st.best, S.money);
+  results.forEach((r, i) => {
+    L.hands++;
+    if (r.outcome === 'win' || r.outcome === 'blackjack') L.wins++;
+    if (r.outcome === 'blackjack') L.bj++;
+    if (r.outcome === 'lose') L.losses++;
+    if (r.outcome === 'push') L.pushes++;
+    if (handValue(S.hands[i].cards).total > 21) L.busts++;
+  });
+  if (net > 0) { L.won = round2(L.won + net); L.biggestWin = Math.max(L.biggestWin, net); }
+  if (net < 0) L.lost = round2(L.lost - net);
+  L.best = Math.max(L.best, S.money);
+  if (S.money <= 0 && !S.overCounted) { S.overCounted = true; L.gamesLost++; }
+  saveLife();
   S.phase = 'done';
   save();
   if (payout > 0) bump('up');
@@ -428,27 +454,27 @@ function showGameOver() {
   $('#over-d').textContent = `Sua banca chegou a ${fmt(0)} depois de ${n} ${n === 1 ? 'mão' : 'mãos'}. Você começou com ${fmt(S.settings.startMoney)}.`;
   $('#over-stats').innerHTML = `<div><b>${st.wins}</b>vitórias</div><div><b>${st.losses}</b>derrotas</div><div><b>${fmt(st.best)}</b>recorde</div>`;
   $('#gameover').hidden = false;
+  if (!S.overCounted) { S.overCounted = true; L.gamesLost++; saveLife(); save(); }
   sound.play('lose');
   setTimeout(() => $('#over-new').focus(), 50);
 }
 
-/** Volta para a configuração inicial, já preenchida com a partida anterior. */
+/**
+ * Vai para a configuração inicial, já preenchida com a partida anterior.
+ * A partida salva só é substituída quando a configuração é confirmada (botão Começar);
+ * voltando pelo "Voltar", ela continua intacta.
+ */
 function newGame() {
   const prev = S ? S.settings : null;
-  const snd = S ? S.opts.sound : true;
-  try { localStorage.removeItem(KEY); } catch { /* ignore */ }
-  S = null;
-  $('#gameover').hidden = true;
-  hideSheet('#menu-sheet');
-  document.body.classList.remove('betting');
+  keepSound = S ? S.opts.sound : keepSound;
   if (prev) prefillSetup(prev);
-  keepSound = snd;
   showSetup();
 }
 let keepSound = true;
 
 /* ---------------- Aposta ---------------- */
 function openBet() {
+  if (!S || $('#table').hidden) return;
   if (S.money <= 0) return showGameOver();
   $('#gameover').hidden = true;
   const inp = $('#bet-input');
@@ -548,12 +574,57 @@ function showSheet(id) { $(id).hidden = false; }
 function hideSheet(id) { $(id).hidden = true; }
 
 /* ---------------- Inicialização ---------------- */
-function showSetup() {
-  $('#table').hidden = true; hideSheet('#bet-sheet'); hideSheet('#menu-sheet');
-  $('#setup').hidden = false;
+const SCREENS = ['#home', '#setup', '#stats-screen', '#table'];
+function showScreen(id) {
+  SCREENS.forEach((s) => { $(s).hidden = s !== id; });
+  if (id !== '#table') {
+    hideSheet('#bet-sheet'); hideSheet('#menu-sheet'); $('#gameover').hidden = true;
+    document.body.classList.remove('betting');
+  }
 }
+function showSetup() { showScreen('#setup'); }
+
+function hasGame() { return !!(S && S.settings); }
+function gameOverState() { return hasGame() && S.money <= 0 && (S.phase === 'bet' || S.phase === 'done'); }
+
+function showHome() {
+  showScreen('#home');
+  const cont = $('#home-continue');
+  const can = hasGame() && !gameOverState();
+  cont.hidden = !can;
+  $('#home-bank').textContent = can ? `Banca ${fmt(S.money)}${S.phase === 'player' || S.phase === 'dealer' ? ' · rodada em andamento' : ''}` : '';
+  $('#home-new').classList.toggle('primary', !can);
+  $('#home-sub').textContent = gameOverState() ? 'Sua última partida terminou com a banca zerada.' : 'Um sapato de verdade, cartas que dá para contar.';
+}
+
+function renderStats() {
+  const cur = $('#st-cur-wrap');
+  cur.hidden = !hasGame();
+  if (hasGame()) {
+    const st = S.stats;
+    const profit = round2(S.money - S.settings.startMoney);
+    const rate = st.hands ? Math.round((st.wins / st.hands) * 100) : 0;
+    $('#st-cur').innerHTML =
+      `<div class="wide"><span>Banca</span><b>${fmt(S.money)}</b></div>` +
+      `<div class="wide"><span>Resultado</span><b class="${profit > 0 ? 'pos' : profit < 0 ? 'neg' : ''}">${profit > 0 ? '+' : profit < 0 ? '−' : ''}${fmt(Math.abs(profit))}</b></div>` +
+      `<div><b>${st.hands}</b>mãos</div><div><b>${st.wins}</b>vitórias</div><div><b>${st.losses}</b>derrotas</div>` +
+      `<div><b>${st.pushes}</b>empates</div><div><b>${st.bj}</b>blackjacks</div><div><b>${rate}%</b>aproveitamento</div>` +
+      `<div class="wide"><span>Recorde da partida</span><b>${fmt(st.best)}</b></div>` +
+      `<div class="wide"><span>Sapato</span><b>${S.settings.decks} ${S.settings.decks === 1 ? 'baralho' : 'baralhos'}</b></div>`;
+  }
+  const rate = L.hands ? Math.round((L.wins / L.hands) * 100) : 0;
+  $('#st-all').innerHTML =
+    `<div><b>${L.games}</b>partidas</div><div><b>${L.gamesLost}</b>falências</div><div><b>${L.hands}</b>mãos</div>` +
+    `<div><b>${L.wins}</b>vitórias</div><div><b>${L.losses}</b>derrotas</div><div><b>${L.pushes}</b>empates</div>` +
+    `<div><b>${L.bj}</b>blackjacks</div><div><b>${L.busts}</b>estouros</div><div><b>${rate}%</b>aproveitamento</div>` +
+    `<div><b>${L.doubles}</b>doubles</div><div><b>${L.splits}</b>splits</div><div><b>${fmt(L.best)}</b>maior banca</div>` +
+    `<div class="wide"><span>Maior ganho numa rodada</span><b>${fmt(L.biggestWin)}</b></div>` +
+    `<div class="wide"><span>Total ganho / perdido</span><b><span class="pos">+${fmt(L.won)}</span> / <span class="neg">−${fmt(L.lost)}</span></b></div>`;
+}
+function showStats() { renderStats(); showScreen('#stats-screen'); }
+
 async function startTable() {
-  $('#setup').hidden = true; $('#table').hidden = false;
+  showScreen('#table');
   sound.setEnabled(S.opts.sound);
   render();
   if (S.phase === 'dealer') return dealerPlay();
@@ -589,6 +660,7 @@ function bindSetup() {
     if (!Number.isFinite(m) || m <= 0) { toast('Informe um valor maior que zero'); return; }
     const pen = Number($('#setup-pen [aria-checked=true]').dataset.pen);
     S = newState(m, decks, pen, { sound: S ? S.opts.sound : keepSound });
+    L.games++; L.best = Math.max(L.best, m); saveLife();
     save();
     sound.play('shuffle');
     startTable();
@@ -601,6 +673,23 @@ function bindTable() {
   $('#btn-stand').addEventListener('click', stand);
   $('#btn-double').addEventListener('click', double);
   $('#btn-split').addEventListener('click', split);
+  $('#home-continue').addEventListener('click', () => { sound.play('tap'); startTable(); });
+  $('#home-new').addEventListener('click', () => {
+    if (hasGame() && !gameOverState() && !confirm('Começar um novo jogo? A partida atual será apagada.')) return;
+    sound.play('tap'); newGame();
+  });
+  $('#home-stats').addEventListener('click', () => { sound.play('tap'); showStats(); });
+  $('#stats-back').addEventListener('click', () => { sound.play('tap'); showHome(); });
+  $('#stats-reset').addEventListener('click', () => {
+    if (!confirm('Zerar as estatísticas de todas as partidas?')) return;
+    L = { ...LIFE0 }; saveLife(); renderStats(); toast('Estatísticas gerais zeradas');
+  });
+  $('#setup-back').addEventListener('click', () => { sound.play('tap'); S = load(); showHome(); });
+  $('#to-home').addEventListener('click', () => {
+    if (busy) return toast('Aguarde a jogada terminar');
+    sound.play('tap'); showHome();
+  });
+  $('#over-home').addEventListener('click', () => { sound.play('tap'); showHome(); });
   $('#over-new').addEventListener('click', () => { sound.play('tap'); newGame(); });
 
   $('#bet-form').addEventListener('submit', (e) => {
@@ -660,8 +749,9 @@ function init() {
   bindSetup();
   bindTable();
   S = load();
-  if (S && S.v === 1 && S.settings) startTable();
-  else { S = null; showSetup(); }
+  if (!(S && S.v === 1 && S.settings)) S = null;
+  if (S) sound.setEnabled(S.opts.sound);
+  showHome();
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('./sw.js').catch(() => {});

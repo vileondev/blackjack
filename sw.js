@@ -1,6 +1,6 @@
 // Service worker: guarda o jogo inteiro no aparelho para jogar offline.
 // Ao mudar qualquer arquivo do jogo, aumente VERSION para os aparelhos baixarem a versão nova.
-const VERSION = 'bj-v4';
+const VERSION = 'bj-v5';
 const FILES = [
   './',
   './index.html',

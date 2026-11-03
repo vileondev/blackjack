@@ -19,9 +19,34 @@
 <body>
 <div class="bg" aria-hidden="true"><i></i><i></i><i></i></div>
 
+<!-- Menu inicial -->
+<section id="home" class="screen" hidden aria-labelledby="home-t">
+  <div class="home-card">
+    <img class="logo home-logo" src="./icons/icon-192.png" alt="" width="96" height="96">
+    <h1 id="home-t">Blackjack</h1>
+    <p class="mut" id="home-sub">Um sapato de verdade, cartas que dá para contar.</p>
+    <div class="home-btns">
+      <button class="btn primary big" type="button" id="home-continue"><span>Continuar</span><small id="home-bank"></small></button>
+      <button class="btn big" type="button" id="home-new">Novo jogo</button>
+      <button class="btn big" type="button" id="home-stats">Estatísticas</button>
+    </div>
+  </div>
+</section>
+
+<!-- Estatísticas -->
+<section id="stats-screen" class="screen" hidden aria-labelledby="stats-t">
+  <div class="glass setup-card stats-card">
+    <div class="sheet-head"><button class="icon-btn" type="button" id="stats-back" aria-label="Voltar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button><h2 id="stats-t">Estatísticas</h2><span class="sp"></span></div>
+    <section id="st-cur-wrap"><h3>Partida atual</h3><div class="stats" id="st-cur"></div></section>
+    <section><h3>Todas as partidas</h3><div class="stats" id="st-all"></div></section>
+    <button class="btn danger" type="button" id="stats-reset">Zerar estatísticas gerais</button>
+  </div>
+</section>
+
 <!-- Configuração inicial -->
 <section id="setup" class="screen" hidden aria-labelledby="setup-t">
   <div class="glass setup-card">
+    <button class="icon-btn back-btn" type="button" id="setup-back" aria-label="Voltar ao menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
     <img class="logo" src="./icons/icon-192.png" alt="" width="72" height="72">
     <h1 id="setup-t">Blackjack</h1>
     <p class="mut">Defina sua banca e o tamanho do sapato.</p>
@@ -123,6 +148,7 @@
     <p class="mut" id="over-d"></p>
     <div class="stats" id="over-stats"></div>
     <button class="btn primary big" type="button" id="over-new">Iniciar novo jogo</button>
+    <button class="btn" type="button" id="over-home">Menu inicial</button>
   </div>
 </div>
 
@@ -158,7 +184,10 @@
 
     <h3>Jogo</h3>
     <div class="stats" id="stats"></div>
-    <button class="btn danger" type="button" id="new-game">Novo jogo</button>
+    <div class="grid2">
+      <button class="btn" type="button" id="to-home">Menu inicial</button>
+      <button class="btn danger" type="button" id="new-game">Novo jogo</button>
+    </div>
   </div>
 </div>
 
