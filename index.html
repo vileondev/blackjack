@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Blackjack</title>
+<meta name="description" content="Blackjack no navegador, offline, com sapato de vários baralhos para contagem de cartas.">
+<meta name="theme-color" content="#050608">
+<meta name="color-scheme" content="dark">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Blackjack">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+<div class="bg" aria-hidden="true"><i></i><i></i><i></i></div>
+
+<!-- Configuração inicial -->
+<section id="setup" class="screen" hidden aria-labelledby="setup-t">
+  <div class="glass setup-card">
+    <img class="logo" src="./icons/icon-192.png" alt="" width="72" height="72">
+    <h1 id="setup-t">Blackjack</h1>
+    <p class="mut">Defina sua banca e o tamanho do sapato.</p>
+    <form id="setup-form">
+      <label class="field">Dinheiro inicial
+        <span class="money-input"><span>$</span><input id="setup-money" type="text" inputmode="decimal" autocomplete="off" value="1000" required></span>
+      </label>
+      <div class="field">Baralhos no sapato
+        <div class="stepper" role="group" aria-label="Quantidade de baralhos">
+          <button type="button" class="step" data-step="-1" aria-label="Menos um baralho">−</button>
+          <output id="setup-decks">6</output>
+          <button type="button" class="step" data-step="1" aria-label="Mais um baralho">+</button>
+        </div>
+        <small class="mut" id="setup-cards">312 cartas</small>
+      </div>
+      <div class="field">Embaralhar quando sobrar
+        <div class="seg" role="radiogroup" aria-label="Penetração do sapato" id="setup-pen">
+          <button type="button" role="radio" data-pen="0.5" aria-checked="false">50%</button>
+          <button type="button" role="radio" data-pen="0.25" aria-checked="true">25%</button>
+          <button type="button" role="radio" data-pen="0.15" aria-checked="false">15%</button>
+        </div>
+      </div>
+      <button class="btn primary big" type="submit">Começar</button>
+    </form>
+  </div>
+</section>
+
+<!-- Mesa -->
+<main id="table" class="screen" hidden>
+  <header class="top">
+    <button class="icon-btn glass" id="open-menu" aria-label="Menu e configurações" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <div class="shoe glass" id="shoe" title="Cartas restantes no sapato">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="11" height="15" rx="2"/><path d="M9 21h9a2 2 0 0 0 2-2V7"/></svg>
+      <span id="shoe-left">0</span>
+    </div>
+  </header>
+
+  <section class="dealer" aria-label="Mesa">
+    <div class="bank glass" aria-live="polite"><small>Banca</small><b id="money">$0</b></div>
+    <div class="hand" id="dealer-hand" aria-label="Cartas da mesa"></div>
+    <div class="sum big-sum" id="dealer-sum" aria-label="Soma da mesa"></div>
+  </section>
+
+  <div class="center">
+    <div class="bet-chip" id="bet-chip" hidden></div>
+    <div class="msg" id="msg" role="status" aria-live="polite"></div>
+    <div class="count-hud glass" id="count-hud" hidden></div>
+    <div class="hint glass" id="hint" hidden></div>
+  </div>
+
+  <section class="player" aria-label="Suas cartas">
+    <div class="hand" id="player-hand" aria-label="Suas cartas"></div>
+    <div class="sum small-sum" id="player-sum" aria-label="Sua soma"></div>
+    <div class="actions" id="actions">
+      <button class="btn glass act" id="btn-stand" type="button">Stand</button>
+      <button class="btn primary act" id="btn-hit" type="button">Hit</button>
+      <button class="btn glass act" id="btn-double" type="button">Double</button>
+    </div>
+  </section>
+</main>
+
+<!-- Aposta (antes de cada rodada): aparece na própria mesa -->
+<div class="bet-layer" id="bet-sheet" hidden>
+  <form class="bet-panel" id="bet-form">
+    <p class="last" id="bet-last" hidden></p>
+    <h2 class="place">Faça sua aposta</h2>
+    <span class="money-input huge"><span>$</span><input id="bet-input" type="text" inputmode="decimal" autocomplete="off" aria-label="Valor da aposta"></span>
+    <span class="mut bet-max" id="bet-max"></span>
+    <p class="err" id="bet-err" role="alert"></p>
+    <div class="bet-bottom">
+      <div class="chip-row" role="group" aria-label="Fichas">
+        <button type="button" class="chip c1" data-add="1"><span>1</span></button>
+        <button type="button" class="chip c5" data-add="5"><span>5</span></button>
+        <button type="button" class="chip c10" data-add="10"><span>10</span></button>
+        <button type="button" class="chip c25" data-add="25"><span>25</span></button>
+        <button type="button" class="chip c50" data-add="50"><span>50</span></button>
+        <button type="button" class="chip c100" data-add="100"><span>100</span></button>
+        <button type="button" class="chip c500" data-add="500"><span>500</span></button>
+        <button type="button" class="chip c1k" data-add="1000"><span>1K</span></button>
+      </div>
+      <div class="quick" role="group" aria-label="Ajustes rápidos">
+        <button type="button" data-op="clear">Limpar</button>
+        <button type="button" data-op="half">½</button>
+        <button type="button" data-op="double">×2</button>
+        <button type="button" data-op="max">Máx</button>
+      </div>
+      <button class="btn primary big" type="submit" id="deal-btn">Dar as cartas</button>
+    </div>
+  </form>
+</div>
+
+<!-- Menu / trapaças -->
+<div class="sheet" id="menu-sheet" hidden>
+  <div class="glass sheet-card menu-card" role="dialog" aria-modal="true" aria-labelledby="menu-t">
+    <div class="sheet-head"><h2 id="menu-t">Configurações</h2><button class="icon-btn" id="close-menu" type="button" aria-label="Fechar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+
+    <h3>Trapaças</h3>
+    <div class="row">
+      <span class="money-input"><span>$</span><input id="cheat-amount" type="text" inputmode="decimal" value="1000" aria-label="Valor"></span>
+      <button class="btn glass" type="button" id="cheat-add">Adicionar</button>
+      <button class="btn glass" type="button" id="cheat-set">Definir</button>
+    </div>
+    <div class="grid2">
+      <button class="btn glass" type="button" id="cheat-win">Ganhar rodada</button>
+      <button class="btn glass" type="button" id="cheat-bj">Ganhar com blackjack</button>
+    </div>
+    <label class="tog"><input type="checkbox" id="cheat-hole"><span></span>Ver carta virada da mesa</label>
+    <label class="tog"><input type="checkbox" id="cheat-next"><span></span>Ver próximas cartas do sapato</label>
+    <div class="next-cards" id="next-cards" hidden></div>
+    <div>
+      <p class="lbl">Escolher a próxima carta</p>
+      <div class="ranks" id="pick-rank"></div>
+    </div>
+
+    <h3>Contagem e ajuda</h3>
+    <label class="tog"><input type="checkbox" id="opt-count"><span></span>Mostrar contagem Hi-Lo na mesa</label>
+    <label class="tog"><input type="checkbox" id="opt-hint"><span></span>Dica de estratégia básica</label>
+    <div class="comp" id="composition"></div>
+    <button class="btn glass" type="button" id="reshuffle">Embaralhar o sapato agora</button>
+
+    <h3>Jogo</h3>
+    <div class="stats" id="stats"></div>
+    <button class="btn danger" type="button" id="new-game">Novo jogo</button>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>
