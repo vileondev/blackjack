@@ -115,6 +115,17 @@
   </form>
 </div>
 
+<!-- Fim de jogo: banca zerada -->
+<div class="over" id="gameover" hidden role="alertdialog" aria-modal="true" aria-labelledby="over-t" aria-describedby="over-d">
+  <div class="glass over-card">
+    <p class="over-kicker">Banca zerada</p>
+    <h2 id="over-t">Você perdeu o jogo</h2>
+    <p class="mut" id="over-d"></p>
+    <div class="stats" id="over-stats"></div>
+    <button class="btn primary big" type="button" id="over-new">Iniciar novo jogo</button>
+  </div>
+</div>
+
 <!-- Menu / trapaças -->
 <div class="sheet" id="menu-sheet" hidden>
   <div class="glass sheet-card menu-card" role="dialog" aria-modal="true" aria-labelledby="menu-t">

@@ -217,6 +217,15 @@ body:not(.betting) .shoe{opacity:0;pointer-events:none}
 .stats div{border:1px solid var(--line);border-radius:10px;padding:8px 4px}
 .stats b{display:block;font-size:16px;font-weight:400;color:var(--txt);font-variant-numeric:tabular-nums}
 
+/* Fim de jogo */
+.over{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:24px 16px;background:rgba(3,4,6,.6);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:fade .4s}
+.over-card{width:min(380px,100%);border-radius:28px;padding:30px 22px 22px;text-align:center;display:grid;gap:14px;animation:rise .5s var(--ease)}
+.over-kicker{margin:0;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.18em;color:var(--bad)}
+.over-card h2{font-size:30px;font-weight:300;letter-spacing:-.02em}
+.over-card .mut{margin:0;font-size:14px}
+.over-card .stats{margin:4px 0 6px}
+
 #toast{position:fixed;left:50%;top:calc(var(--safe-t) + 64px);transform:translate(-50%,-8px);z-index:40;background:rgba(14,16,22,.7);border:1px solid var(--line);
   backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);padding:9px 16px;border-radius:999px;font-size:13px;opacity:0;pointer-events:none;transition:all .3s var(--ease);white-space:nowrap}
 #toast.on{opacity:1;transform:translate(-50%,0)}

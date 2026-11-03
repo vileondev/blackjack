@@ -419,8 +419,38 @@ function resultText(r) {
   }[r.outcome];
 }
 
+/* ---------------- Fim de jogo ---------------- */
+function showGameOver() {
+  hideSheet('#bet-sheet');
+  document.body.classList.add('betting');
+  const st = S.stats;
+  const n = st.hands;
+  $('#over-d').textContent = `Sua banca chegou a ${fmt(0)} depois de ${n} ${n === 1 ? 'mão' : 'mãos'}. Você começou com ${fmt(S.settings.startMoney)}.`;
+  $('#over-stats').innerHTML = `<div><b>${st.wins}</b>vitórias</div><div><b>${st.losses}</b>derrotas</div><div><b>${fmt(st.best)}</b>recorde</div>`;
+  $('#gameover').hidden = false;
+  sound.play('lose');
+  setTimeout(() => $('#over-new').focus(), 50);
+}
+
+/** Volta para a configuração inicial, já preenchida com a partida anterior. */
+function newGame() {
+  const prev = S ? S.settings : null;
+  const snd = S ? S.opts.sound : true;
+  try { localStorage.removeItem(KEY); } catch { /* ignore */ }
+  S = null;
+  $('#gameover').hidden = true;
+  hideSheet('#menu-sheet');
+  document.body.classList.remove('betting');
+  if (prev) prefillSetup(prev);
+  keepSound = snd;
+  showSetup();
+}
+let keepSound = true;
+
 /* ---------------- Aposta ---------------- */
 function openBet() {
+  if (S.money <= 0) return showGameOver();
+  $('#gameover').hidden = true;
   const inp = $('#bet-input');
   const v = Math.min(S.lastBet || 0, S.money);
   inp.value = v > 0 ? String(v).replace('.', ',') : '';
@@ -433,8 +463,8 @@ function openBet() {
     last.className = 'last ' + (r.outcome === 'blackjack' ? 'bj' : r.outcome === 'win' ? 'win' : r.outcome === 'lose' ? 'lose' : '');
     last.textContent = `${resultText(r)} · ${S.hands.map((h) => handLabel(h.cards)).join(' / ')} × ${handLabel(S.dealer)}`;
   }
-  $('#bet-err').textContent = S.money <= 0 ? 'Sem dinheiro. Use as trapaças ou comece um novo jogo.' : '';
-  $('#deal-btn').disabled = S.money <= 0;
+  $('#bet-err').textContent = '';
+  $('#deal-btn').disabled = false;
   showSheet('#bet-sheet');
   document.body.classList.add('betting');
   placeBetLayer();
@@ -541,10 +571,16 @@ async function startTable() {
   openBet();
 }
 
+let prefillSetup = () => {};
 function bindSetup() {
   let decks = 6;
   const out = $('#setup-decks');
   const upd = () => { out.textContent = decks; $('#setup-cards').textContent = `${decks * 52} cartas`; };
+  prefillSetup = (st) => {
+    decks = st.decks; upd();
+    $('#setup-money').value = String(st.startMoney).replace('.', ',');
+    $$('#setup-pen button').forEach((x) => x.setAttribute('aria-checked', Number(x.dataset.pen) === st.pen));
+  };
   $$('#setup .step').forEach((b) => b.addEventListener('click', () => { decks = Math.max(1, Math.min(8, decks + Number(b.dataset.step))); upd(); sound.play('tap'); }));
   $$('#setup-pen button').forEach((b) => b.addEventListener('click', () => { $$('#setup-pen button').forEach((x) => x.setAttribute('aria-checked', x === b)); sound.play('tap'); }));
   $('#setup-form').addEventListener('submit', (e) => {
@@ -552,7 +588,7 @@ function bindSetup() {
     const m = parseMoney($('#setup-money').value);
     if (!Number.isFinite(m) || m <= 0) { toast('Informe um valor maior que zero'); return; }
     const pen = Number($('#setup-pen [aria-checked=true]').dataset.pen);
-    S = newState(m, decks, pen, S ? { sound: S.opts.sound } : {});
+    S = newState(m, decks, pen, { sound: S ? S.opts.sound : keepSound });
     save();
     sound.play('shuffle');
     startTable();
@@ -565,6 +601,7 @@ function bindTable() {
   $('#btn-stand').addEventListener('click', stand);
   $('#btn-double').addEventListener('click', double);
   $('#btn-split').addEventListener('click', split);
+  $('#over-new').addEventListener('click', () => { sound.play('tap'); newGame(); });
 
   $('#bet-form').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -610,9 +647,7 @@ function bindTable() {
   });
   $('#new-game').addEventListener('click', () => {
     if (!confirm('Começar um novo jogo? A banca e o sapato atuais serão apagados.')) return;
-    try { localStorage.removeItem(KEY); } catch { /* ignore */ }
-    hideSheet('#menu-sheet');
-    showSetup();
+    newGame();
   });
 }
 
