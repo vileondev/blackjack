@@ -57,3 +57,18 @@ test('estratégia básica', () => {
   assert.equal(basicStrategy(C('As 7h'), C('9d')[0], true), 'hit');
   assert.equal(basicStrategy(C('10s 2h'), C('2d')[0], true), 'hit');
 });
+
+test('split: pares, 21 depois do split paga 1:1 e estratégia', async () => {
+  const { canSplitCards } = await import('../js/engine.js');
+  assert.ok(canSplitCards(C('8s 8h')));
+  assert.ok(canSplitCards(C('Ks 10h')));
+  assert.ok(!canSplitCards(C('8s 9h')));
+  assert.ok(!canSplitCards(C('8s 8h 8d')));
+  assert.deepEqual(settle(C('As Kd'), C('10s 9h'), 10, true), { outcome: 'win', payout: 20 });
+  assert.equal(basicStrategy(C('8s 8h'), C('10d')[0], true, true), 'split');
+  assert.equal(basicStrategy(C('As Ah'), C('6d')[0], true, true), 'split');
+  assert.equal(basicStrategy(C('10s Kh'), C('6d')[0], true, true), 'stand');
+  assert.equal(basicStrategy(C('5s 5h'), C('6d')[0], true, true), 'double');
+  assert.equal(basicStrategy(C('9s 9h'), C('7d')[0], true, true), 'stand');
+  assert.equal(basicStrategy(C('8s 8h'), C('10d')[0], true, false), 'hit');
+});

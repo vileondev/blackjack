@@ -75,12 +75,12 @@
   </div>
 
   <section class="player" aria-label="Suas cartas">
-    <div class="hand" id="player-hand" aria-label="Suas cartas"></div>
-    <div class="sum small-sum" id="player-sum" aria-label="Sua soma"></div>
+    <div class="hands" id="player-hands" aria-label="Suas mãos"></div>
     <div class="actions" id="actions">
       <button class="btn glass act" id="btn-stand" type="button">Stand</button>
       <button class="btn primary act" id="btn-hit" type="button">Hit</button>
-      <button class="btn glass act" id="btn-double" type="button">Double</button>
+      <button class="btn glass act" id="btn-double" type="button" hidden>Double</button>
+      <button class="btn glass act" id="btn-split" type="button" hidden>Split</button>
     </div>
   </section>
 </main>
@@ -141,6 +141,7 @@
     <h3>Contagem e ajuda</h3>
     <label class="tog"><input type="checkbox" id="opt-count"><span></span>Mostrar contagem Hi-Lo na mesa</label>
     <label class="tog"><input type="checkbox" id="opt-hint"><span></span>Dica de estratégia básica</label>
+    <label class="tog"><input type="checkbox" id="opt-sound"><span></span>Efeitos sonoros</label>
     <div class="comp" id="composition"></div>
     <button class="btn glass" type="button" id="reshuffle">Embaralhar o sapato agora</button>
 

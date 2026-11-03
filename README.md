@@ -5,20 +5,22 @@ Blackjack no navegador, mobile first, que funciona offline (PWA) e guarda tudo n
 ## Como jogar
 1. Na primeira vez, defina o **dinheiro inicial**, a **quantidade de baralhos** (1 a 8) e quando o sapato é embaralhado.
 2. Antes de cada rodada, faça a aposta (digite o valor ou toque nas fichas).
-3. Jogue com **Hit**, **Stand** e **Double** (Double só nas 2 primeiras cartas e se houver saldo).
+3. Jogue com **Hit**, **Stand**, **Double** e **Split**. Double e Split só aparecem quando estão disponíveis.
 
 ## Regras
 - Sapato real com N baralhos de 52 cartas: as cartas saem de verdade e só voltam quando o sapato é embaralhado, então dá para contar cartas.
 - O sapato é embaralhado ao fim da rodada em que sobrar menos que a porcentagem escolhida (50%, 25% ou 15%).
 - Blackjack paga 3:2. A mesa compra até 17 e para em todo 17 (inclusive soft 17).
 - A mesa confere blackjack quando mostra Ás ou carta de valor 10.
-- Sem split e sem seguro.
+- Split de duas cartas de mesmo valor (10, J, Q e K contam como iguais), até 4 mãos, com Double depois do split.
+- Ases divididos recebem uma carta cada. 21 em mão dividida paga 1:1 (não conta como blackjack).
+- Sem seguro.
 
 ## Menu (☰): trapaças e contagem
 - Adicionar ou definir dinheiro, ganhar a rodada atual, armar blackjack na próxima mão.
 - Ver a carta virada da mesa, ver as próximas cartas do sapato e escolher a próxima carta.
 - Contagem Hi-Lo (running count e true count), cartas não vistas por valor e dica de estratégia básica.
-- Estatísticas e novo jogo.
+- Efeitos sonoros (gerados no navegador, funcionam offline), estatísticas e novo jogo.
 
 ## Offline e salvamento
 - Tudo (banca, sapato, rodada em andamento e opções) fica no `localStorage` do aparelho.
@@ -37,5 +39,6 @@ Testes do motor do jogo: `npm test` (Node 18+).
 ## Estrutura
 - `index.html`, `css/style.css`: interface
 - `js/engine.js`: regras (sapato, valores, pagamentos, Hi-Lo, estratégia básica)
-- `js/app.js`: rodadas, aposta, trapaças e salvamento
+- `js/app.js`: rodadas, aposta, split, trapaças e salvamento
+- `js/sound.js`: efeitos sonoros sintetizados (Web Audio)
 - `sw.js`, `manifest.webmanifest`, `icons/`: PWA

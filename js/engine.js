@@ -79,15 +79,21 @@ export function dealerShouldHit(cards) {
   return handValue(cards).total < 17;
 }
 
+/** Duas cartas de mesmo valor podem ser divididas (10, J, Q e K contam como iguais). */
+export function canSplitCards(cards) {
+  return cards.length === 2 && cardValue(cards[0]) === cardValue(cards[1]);
+}
+
 /**
- * Resultado da rodada para o jogador.
+ * Resultado de uma mão do jogador.
  * Retorna { outcome: 'blackjack'|'win'|'push'|'lose', payout } — payout é quanto volta para a banca
- * (aposta incluída). Blackjack paga 3:2.
+ * (aposta incluída). Blackjack paga 3:2. Em mão vinda de split (`fromSplit`), 21 com duas cartas
+ * não é blackjack e paga 1:1.
  */
-export function settle(player, dealer, bet) {
+export function settle(player, dealer, bet, fromSplit = false) {
   const p = handValue(player).total;
   const d = handValue(dealer).total;
-  const pBJ = isBlackjack(player), dBJ = isBlackjack(dealer);
+  const pBJ = !fromSplit && isBlackjack(player), dBJ = isBlackjack(dealer);
   if (pBJ && dBJ) return { outcome: 'push', payout: bet };
   if (pBJ) return { outcome: 'blackjack', payout: bet * 2.5 };
   if (dBJ) return { outcome: 'lose', payout: 0 };
@@ -98,13 +104,24 @@ export function settle(player, dealer, bet) {
 }
 
 /**
- * Estratégia básica (vários baralhos, dealer para no soft 17, sem split).
- * Retorna 'hit' | 'stand' | 'double'. `canDouble` indica se dobrar é permitido agora.
+ * Estratégia básica (vários baralhos, mesa para no soft 17, dobrar depois do split permitido).
+ * Retorna 'hit' | 'stand' | 'double' | 'split'.
  */
-export function basicStrategy(player, dealerUp, canDouble) {
+export function basicStrategy(player, dealerUp, canDouble, canSplit = false) {
   const { total, soft } = handValue(player);
   const up = dealerUp.r === 'A' ? 11 : cardValue(dealerUp);
   const D = (cond, otherwise) => (cond ? (canDouble ? 'double' : otherwise) : null);
+
+  if (canSplit && canSplitCards(player)) {
+    const v = cardValue(player[0]);
+    const split =
+      v === 1 || v === 8 ||
+      (v === 9 && ((up >= 2 && up <= 6) || up === 8 || up === 9)) ||
+      ((v === 7 || v === 2 || v === 3) && up <= 7) ||
+      (v === 6 && up <= 6) ||
+      (v === 4 && (up === 5 || up === 6));
+    if (split) return 'split';
+  }
 
   if (soft) {
     if (total >= 19) return 'stand';

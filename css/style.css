@@ -131,12 +131,25 @@ form{display:grid;gap:18px;margin-top:26px;text-align:left}
 .bet-chip span{position:relative;max-width:46px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bet-chip small{position:absolute;right:-8px;top:-6px;font-size:10px;padding:2px 5px;border-radius:999px;background:#0b0d12;border:1px solid var(--line-hi)}
 @keyframes pop{from{transform:scale(.4);opacity:0}}
-.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;width:100%;max-width:440px;margin-top:6px}
+.actions{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:8px;width:100%;max-width:440px;margin-top:6px}
 .act{min-height:56px;font-size:15px;border-radius:16px}
 .actions.off .act{opacity:.3;pointer-events:none}
 
+/* Mãos do jogador (várias depois do split) */
+.hands{display:flex;justify-content:center;align-items:flex-end;gap:14px;width:100%}
+.phand{display:flex;flex-direction:column;align-items:center;gap:8px;transition:opacity .3s,transform .3s var(--ease)}
+.hands.multi{--cw:clamp(50px,14vw,78px)}
+.hands.many{--cw:clamp(40px,10.5vw,64px);gap:8px}
+.hands.multi .phand .card{width:var(--cw);height:calc(var(--cw) * 1.4)}
+.hands.multi .phand .hand{min-height:calc(var(--cw) * 1.4);padding:0}
+.phand.waiting{opacity:.45}
+.phand.active{transform:translateY(-6px)}
+.phand.active .sum{color:var(--txt);border-bottom:1px solid var(--blue-line)}
+.phand.res-win .sum{color:var(--ok)}.phand.res-lose .sum{color:var(--bad)}
+.hands.multi .small-sum{font-size:11px;white-space:nowrap}
+
 /* Aposta: direto na mesa, sem painel por cima */
-.bet-layer{position:fixed;left:0;right:0;bottom:0;top:calc(var(--safe-t) + 150px);z-index:15;display:flex;justify-content:center;animation:fade .3s}
+.bet-layer{position:fixed;left:0;right:0;bottom:0;top:calc(var(--safe-t) + 150px);z-index:15;overflow-y:auto;display:flex;justify-content:center;animation:fade .3s}
 .bet-panel{width:min(480px,100%);margin:0;padding:0 16px calc(var(--safe-b) + 16px);display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center}
 .bet-panel>*{min-width:0}
 .place{margin-top:auto;font-size:clamp(30px,9vw,40px);font-weight:300;letter-spacing:-.02em}

@@ -1,12 +1,15 @@
 import {
   RANKS, SUIT_SYMBOL, RED, createShoe, handValue, handLabel, isBlackjack, cardValue,
-  hiLo, dealerShouldHit, settle, basicStrategy,
+  hiLo, dealerShouldHit, settle, basicStrategy, canSplitCards,
 } from './engine.js';
+import * as sound from './sound.js';
 
 const KEY = 'blackjack:v1';
-const $ = (s) => document.querySelector(s);
-const $$ = (s) => [...document.querySelectorAll(s)];
+const MAX_HANDS = 4;
+const $ = (s, c = document) => c.querySelector(s);
+const $$ = (s, c = document) => [...c.querySelectorAll(s)];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const round2 = (n) => Math.round(n * 100) / 100;
 
 /* ---------------- Estado e armazenamento local ---------------- */
 let S = null;          // estado salvo
@@ -14,34 +17,54 @@ let busy = false;      // bloqueia comandos durante animações
 let dealShown = null;  // durante a distribuição: quantas cartas já aparecem (ordem J, M, J, M)
 
 function load() {
-  try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
+  try {
+    const raw = localStorage.getItem(KEY);
+    return raw ? migrate(JSON.parse(raw)) : null;
+  } catch { return null; }
 }
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { /* armazenamento cheio ou bloqueado */ }
 }
+/** Converte saves antigos (uma mão só) para o formato com várias mãos. */
+function migrate(s) {
+  if (!s || !s.settings) return null;
+  if (!s.hands) {
+    s.hands = s.player && s.player.length ? [newHand(s.player, s.bet || 0, { doubled: !!s.doubled })] : [];
+    s.cur = 0;
+    delete s.player; delete s.doubled;
+  }
+  s.opts = { sound: true, ...s.opts };
+  return s;
+}
 
-function newState(money, decks, pen) {
+function newHand(cards, bet, extra = {}) {
+  return { cards, bet, doubled: false, split: false, aces: false, done: false, ...extra };
+}
+
+function newState(money, decks, pen, opts) {
   return {
     v: 1,
     settings: { decks, pen, startMoney: money },
     money,
     shoe: createShoe(decks),
     phase: 'bet',           // bet | player | dealer | done
-    bet: 0, lastBet: Math.min(25, money) || 0,
-    player: [], dealer: [], holeHidden: true, doubled: false,
-    result: null,           // { outcome, payout, net }
+    lastBet: Math.min(25, money) || 0,
+    hands: [], cur: 0, dealer: [], holeHidden: true,
+    result: null,           // { outcome, payout, net, hands: [...] }
     rigBJ: false,
     round: 0,
-    opts: { showHole: false, showNext: false, showCount: false, showHint: false },
+    opts: { showHole: false, showNext: false, showCount: false, showHint: false, sound: true, ...opts },
     stats: { hands: 0, wins: 0, losses: 0, pushes: 0, bj: 0, best: money },
   };
 }
 
 const total = () => S.settings.decks * 52;
+const hand = () => S.hands[S.cur];
+const totalBet = () => S.hands.reduce((a, h) => a + h.bet, 0);
 
 /* ---------------- Utilidades ---------------- */
 function fmt(n) {
-  const v = Math.round(n * 100) / 100;
+  const v = round2(n);
   return '$' + v.toLocaleString('pt-BR', { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 });
 }
 function parseMoney(str) {
@@ -50,7 +73,7 @@ function parseMoney(str) {
   if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
   else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
   const n = Number(s);
-  return Number.isFinite(n) ? Math.round(n * 100) / 100 : NaN;
+  return Number.isFinite(n) ? round2(n) : NaN;
 }
 let toastT;
 function toast(m) {
@@ -64,7 +87,7 @@ function bump(dir) {
 /* ---------------- Sapato ---------------- */
 function reshuffle(silent) {
   S.shoe = createShoe(S.settings.decks);
-  if (!silent) toast(`Sapato embaralhado · ${total()} cartas`);
+  if (!silent) { toast(`Sapato embaralhado · ${total()} cartas`); sound.play('shuffle'); }
 }
 function draw() {
   if (!S.shoe.length) reshuffle();
@@ -90,32 +113,41 @@ function countInfo() {
 }
 
 /* ---------------- Rodada ---------------- */
+function canAct() { return S.phase === 'player' && !busy && dealShown == null && hand() && !hand().done; }
 function canDouble() {
-  return S.phase === 'player' && S.player.length === 2 && !S.doubled && S.money >= S.bet;
+  const h = hand();
+  return S.phase === 'player' && h && h.cards.length === 2 && !h.doubled && !h.aces && S.money >= h.bet;
+}
+function canSplit() {
+  const h = hand();
+  return S.phase === 'player' && h && canSplitCards(h.cards) && S.hands.length < MAX_HANDS && !h.aces && S.money >= h.bet;
 }
 
 async function deal(bet) {
   if (busy) return;
   busy = true;
-  S.money -= bet; S.bet = bet; S.lastBet = bet;
-  S.player = []; S.dealer = []; S.holeHidden = true; S.doubled = false; S.result = null;
+  S.money = round2(S.money - bet); S.lastBet = bet;
+  S.dealer = []; S.holeHidden = true; S.result = null; S.cur = 0;
+  S.hands = [newHand([], bet)];
   S.round++;
 
   if (S.rigBJ) rigBlackjack();
   // Ordem real de distribuição: jogador, mesa, jogador, mesa (virada)
-  S.player.push(draw()); S.dealer.push(draw()); S.player.push(draw()); S.dealer.push(draw());
+  const p = S.hands[0].cards;
+  p.push(draw()); S.dealer.push(draw()); p.push(draw()); S.dealer.push(draw());
   S.phase = 'player';
   save();
 
   hideSheet('#bet-sheet');
   document.body.classList.remove('betting');
+  sound.play('bet');
   bump('down');
-  for (dealShown = 1; dealShown <= 4; dealShown++) { render(); await sleep(260); }
+  for (dealShown = 1; dealShown <= 4; dealShown++) { render(); sound.play('card'); await sleep(260); }
   dealShown = null; render();
 
   const up = S.dealer[0];
   const peek = up.r === 'A' || cardValue(up) === 10;
-  if ((peek && isBlackjack(S.dealer)) || isBlackjack(S.player)) {
+  if ((peek && isBlackjack(S.dealer)) || isBlackjack(p)) {
     await sleep(350);
     busy = false;
     return finish();
@@ -136,37 +168,75 @@ function rigBlackjack() {
   S.shoe.push(low2, ten, low1, ace);
 }
 
+/** Encerra a mão atual e passa para a próxima (ou para a mesa). */
+async function nextHand() {
+  hand().done = true;
+  while (S.cur < S.hands.length - 1) {
+    S.cur++;
+    const h = hand();
+    if (h.cards.length === 1) {                // mão vinda de split: recebe a 2ª carta agora
+      busy = true; save(); render(); await sleep(300);
+      h.cards.push(draw()); sound.play('card'); save(); render();
+      await sleep(350); busy = false;
+      if (h.aces || handValue(h.cards).total === 21) { h.done = true; continue; }
+    }
+    if (!h.done) { save(); render(); return; }
+  }
+  // Todas as mãos jogadas
+  const alive = S.hands.some((h) => handValue(h.cards).total <= 21);
+  if (!alive) { busy = true; await sleep(400); busy = false; return finish(); }
+  S.phase = 'dealer'; save();
+  return dealerPlay();
+}
+
 async function hit() {
-  if (busy || S.phase !== 'player') return;
-  S.player.push(draw()); save(); render();
-  const t = handValue(S.player).total;
-  if (t > 21) { busy = true; await sleep(450); busy = false; return finish(); }
-  if (t === 21) return stand();
+  if (!canAct()) return;
+  const h = hand();
+  h.cards.push(draw()); sound.play('card'); save(); render();
+  const t = handValue(h.cards).total;
+  if (t > 21) { sound.play('bust'); busy = true; await sleep(450); busy = false; return nextHand(); }
+  if (t === 21) { busy = true; await sleep(250); busy = false; return nextHand(); }
 }
 
 async function stand() {
-  if (busy || S.phase !== 'player') return;
-  S.phase = 'dealer'; save();
-  return dealerPlay();
+  if (!canAct()) return;
+  sound.play('tap');
+  return nextHand();
 }
 
 async function double() {
-  if (busy || !canDouble()) return;
-  S.money -= S.bet; S.bet *= 2; S.doubled = true;
-  bump('down');
-  S.player.push(draw()); save(); render();
+  if (!canAct() || !canDouble()) return;
+  const h = hand();
+  S.money = round2(S.money - h.bet); h.bet *= 2; h.doubled = true;
+  sound.play('chip'); bump('down');
+  h.cards.push(draw()); sound.play('card'); save(); render();
   busy = true; await sleep(500); busy = false;
-  if (handValue(S.player).total > 21) return finish();
-  S.phase = 'dealer'; save();
-  return dealerPlay();
+  if (handValue(h.cards).total > 21) sound.play('bust');
+  return nextHand();
+}
+
+async function split() {
+  if (!canAct() || !canSplit()) return;
+  const h = hand();
+  const aces = h.cards[0].r === 'A';
+  S.money = round2(S.money - h.bet);
+  const second = h.cards.pop();
+  h.split = true; h.aces = aces;
+  S.hands.splice(S.cur + 1, 0, newHand([second], h.bet, { split: true, aces }));
+  sound.play('chip'); bump('down');
+  busy = true; save(); render(); await sleep(350);
+  h.cards.push(draw()); sound.play('card'); save(); render();
+  await sleep(350); busy = false;
+  if (aces || handValue(h.cards).total === 21) return nextHand();
+  render();
 }
 
 async function dealerPlay() {
   busy = true;
-  S.holeHidden = false; save(); render();
+  S.holeHidden = false; save(); render(); sound.play('flip');
   await sleep(600);
   while (S.phase === 'dealer' && dealerShouldHit(S.dealer)) {
-    S.dealer.push(draw()); save(); render();
+    S.dealer.push(draw()); sound.play('card'); save(); render();
     await sleep(650);
   }
   busy = false;
@@ -175,23 +245,36 @@ async function dealerPlay() {
 
 function finish(forced) {
   if (S.phase !== 'player' && S.phase !== 'dealer') return;
+  if (S.holeHidden) sound.play('flip');
   S.holeHidden = false;
-  const r = forced || settle(S.player, S.dealer, S.bet);
-  S.money = Math.round((S.money + r.payout) * 100) / 100;
-  S.result = { ...r, net: r.payout - S.bet };
+  const results = S.hands.map((h) => (forced ? { outcome: 'win', payout: h.bet * 2 } : settle(h.cards, S.dealer, h.bet, h.split)));
+  const payout = results.reduce((a, r) => a + r.payout, 0);
+  const bet = totalBet();
+  const net = round2(payout - bet);
+  S.money = round2(S.money + payout);
+  let outcome = net > 0 ? 'win' : net < 0 ? 'lose' : 'push';
+  if (results.length === 1) outcome = results[0].outcome;
+  S.result = { outcome, payout, net, bet, forced: !!forced, hands: results.map((r) => r.outcome) };
+
   const st = S.stats;
-  st.hands++;
-  if (r.outcome === 'win' || r.outcome === 'blackjack') st.wins++;
-  if (r.outcome === 'blackjack') st.bj++;
-  if (r.outcome === 'lose') st.losses++;
-  if (r.outcome === 'push') st.pushes++;
+  results.forEach((r) => {
+    st.hands++;
+    if (r.outcome === 'win' || r.outcome === 'blackjack') st.wins++;
+    if (r.outcome === 'blackjack') st.bj++;
+    if (r.outcome === 'lose') st.losses++;
+    if (r.outcome === 'push') st.pushes++;
+  });
   st.best = Math.max(st.best, S.money);
   S.phase = 'done';
-  if (S.shoe.length < total() * S.settings.pen) reshuffle();
   save();
-  if (r.payout > 0) bump('up');
+  if (payout > 0) bump('up');
+  sound.play(outcome === 'blackjack' ? 'blackjack' : outcome === 'win' ? 'win' : outcome === 'push' ? 'push' : 'lose');
   render();
-  setTimeout(() => { if (S.phase === 'done') openBet(); }, 2200);
+  setTimeout(() => {
+    if (S.phase !== 'done') return;
+    if (S.shoe.length < total() * S.settings.pen) { reshuffle(); save(); }
+    openBet();
+  }, 2200);
 }
 
 /* ---------------- Renderização ---------------- */
@@ -201,6 +284,7 @@ function cardEl(card) {
   el.className = 'card deal';
   el.innerHTML = `<div class="in"><div class="face${RED[card.s] ? ' red' : ''}"><span class="rk">${card.r}</span><span class="st">${sym}</span></div><div class="back"></div></div>`;
   el.dataset.label = `${card.r} de ${{ s: 'espadas', h: 'copas', d: 'ouros', c: 'paus' }[card.s]}`;
+  el.dataset.key = card.r + card.s;
   el.setAttribute('role', 'img');
   el.addEventListener('animationend', () => el.classList.remove('deal'), { once: true });
   return el;
@@ -208,7 +292,10 @@ function cardEl(card) {
 
 function renderHand(box, cards, hideIndex) {
   if (box.dataset.round !== String(S.round)) { box.innerHTML = ''; box.dataset.round = S.round; }
-  while (box.children.length > cards.length) box.lastChild.remove();
+  // Remove cartas que não pertencem mais a esta posição (ex.: a 2ª carta que foi para outra mão no split)
+  for (let i = box.children.length - 1; i >= 0; i--) {
+    if (i >= cards.length || box.children[i].dataset.key !== cards[i].r + cards[i].s) box.children[i].remove();
+  }
   cards.forEach((c, i) => {
     let el = box.children[i];
     if (!el) { el = cardEl(c); box.appendChild(el); }
@@ -219,11 +306,46 @@ function renderHand(box, cards, hideIndex) {
   });
 }
 
-function visibleCards() {
-  if (dealShown == null) return { p: S.player, d: S.dealer };
+function visibleHands() {
+  if (dealShown == null) return { hs: S.hands.map((h) => h.cards), d: S.dealer };
   const p = [], d = [];
-  for (let i = 0; i < dealShown; i++) (i % 2 ? d : p).push(i % 2 ? S.dealer[(i - 1) / 2] : S.player[i / 2]);
-  return { p, d };
+  const pc = S.hands[0].cards;
+  for (let i = 0; i < dealShown; i++) (i % 2 ? d : p).push(i % 2 ? S.dealer[(i - 1) / 2] : pc[i / 2]);
+  return { hs: [p], d };
+}
+
+const OUT_LABEL = { win: 'ganhou', blackjack: 'blackjack', push: 'empate', lose: 'perdeu' };
+
+function renderPlayer(hs) {
+  const wrap = $('#player-hands');
+  if (wrap.dataset.round !== String(S.round)) { wrap.innerHTML = ''; wrap.dataset.round = S.round; }
+  while (wrap.children.length > hs.length) wrap.lastChild.remove();
+  while (wrap.children.length < hs.length) {
+    const g = document.createElement('div');
+    g.className = 'phand';
+    g.innerHTML = '<div class="hand"></div><div class="sum small-sum"></div>';
+    wrap.appendChild(g);
+  }
+  const multi = hs.length > 1;
+  wrap.classList.toggle('multi', multi);
+  wrap.classList.toggle('many', hs.length > 2);
+  hs.forEach((cards, i) => {
+    const g = wrap.children[i];
+    const h = S.hands[i];
+    renderHand($('.hand', g), cards, -1);
+    const sum = $('.sum', g);
+    let label = cards.length ? (h && h.split && cards.length === 2 && handValue(cards).total === 21 ? '21' : handLabel(cards)) : '';
+    if (multi && h) label += ` · ${fmt(h.bet)}`;
+    if (S.phase === 'done' && S.result && S.result.hands[i] && multi) label += ` · ${OUT_LABEL[S.result.hands[i]]}`;
+    sum.textContent = label;
+    const t = cards.length ? handValue(cards).total : 0;
+    sum.classList.toggle('bust', t > 21);
+    sum.classList.toggle('bj', !(h && h.split) && isBlackjack(cards));
+    g.classList.toggle('active', multi && S.phase === 'player' && i === S.cur);
+    g.classList.toggle('waiting', multi && S.phase === 'player' && i !== S.cur);
+    g.classList.toggle('res-win', S.phase === 'done' && multi && /win|blackjack/.test(S.result?.hands[i] || ''));
+    g.classList.toggle('res-lose', S.phase === 'done' && multi && S.result?.hands[i] === 'lose');
+  });
 }
 
 function render() {
@@ -232,41 +354,38 @@ function render() {
   const ci = countInfo();
   $('#shoe-left').innerHTML = `<b>${S.shoe.length}</b> / ${total()}`;
 
-  const { p, d } = visibleCards();
+  const { hs, d } = visibleHands();
   const hideIdx = S.holeHidden && S.phase !== 'done' ? 1 : -1;
-  renderHand($('#player-hand'), p, -1);
+  renderPlayer(hs);
   renderHand($('#dealer-hand'), d, hideIdx);
 
-  // Somas
-  const ps = $('#player-sum');
-  ps.textContent = p.length ? handLabel(p) : '';
-  ps.classList.toggle('bust', p.length > 0 && handValue(p).total > 21);
-  ps.classList.toggle('bj', isBlackjack(p) && p.length === 2);
   const ds = $('#dealer-sum');
   const dVisible = hideIdx === 1 && !S.opts.showHole ? d.slice(0, 1) : d;
   ds.textContent = dVisible.length ? handLabel(dVisible) : '';
   ds.classList.toggle('bust', d.length > 0 && hideIdx !== 1 && handValue(d).total > 21);
   ds.classList.toggle('bj', hideIdx !== 1 && isBlackjack(d));
 
-  // Aposta em jogo
+  // Ficha da aposta no centro (soma de todas as mãos)
   const chip = $('#bet-chip');
-  chip.hidden = !(S.phase === 'player' || S.phase === 'dealer' || S.phase === 'done') || !S.bet;
-  chip.innerHTML = `<span>${fmt(S.bet)}</span>${S.doubled ? '<small>×2</small>' : ''}`;
+  const tb = totalBet();
+  chip.hidden = !(S.phase === 'player' || S.phase === 'dealer' || S.phase === 'done') || !tb;
+  const badge = S.hands.length > 1 ? `${S.hands.length} mãos` : S.hands[0]?.doubled ? '×2' : '';
+  chip.innerHTML = `<span>${fmt(tb)}</span>${badge ? `<small>${badge}</small>` : ''}`;
 
-  // Botões
-  const playing = S.phase === 'player' && !busy && dealShown == null;
+  // Botões: Double e Split só aparecem quando estão disponíveis
+  const playing = canAct();
   $('#actions').classList.toggle('off', !playing);
   $('#btn-hit').disabled = !playing;
   $('#btn-stand').disabled = !playing;
-  $('#btn-double').disabled = !(playing && canDouble());
+  $('#btn-double').hidden = !(playing && canDouble());
+  $('#btn-split').hidden = !(playing && canSplit());
 
   // Mensagem de resultado
   const msg = $('#msg');
   msg.className = 'msg';
   if (S.phase === 'done' && S.result) {
     const r = S.result;
-    const txt = resultText(r);
-    msg.textContent = r.forced ? txt + ' 🃏' : txt;
+    msg.textContent = resultText(r) + (r.forced ? ' 🃏' : '');
     msg.classList.add('on', r.outcome === 'blackjack' ? 'bj' : r.outcome === 'win' ? 'win' : r.outcome === 'lose' ? 'lose' : 'push');
   } else msg.textContent = '';
 
@@ -278,15 +397,26 @@ function render() {
   const showHint = S.opts.showHint && playing;
   hint.hidden = !showHint;
   if (showHint) {
-    const a = basicStrategy(S.player, S.dealer[0], canDouble());
-    hint.innerHTML = `Estratégia básica: <b>${{ hit: 'Hit', stand: 'Stand', double: 'Double' }[a]}</b>`;
+    const a = basicStrategy(hand().cards, S.dealer[0], canDouble(), canSplit());
+    hint.innerHTML = `Estratégia básica: <b>${{ hit: 'Hit', stand: 'Stand', double: 'Double', split: 'Split' }[a]}</b>`;
   }
 
   if (!$('#menu-sheet').hidden) renderMenu();
 }
 
 function resultText(r) {
-  return { blackjack: `Blackjack! +${fmt(r.net)}`, win: `Você ganhou +${fmt(r.net)}`, push: 'Empate', lose: handValue(S.player).total > 21 ? `Estourou −${fmt(S.bet)}` : `Mesa ganhou −${fmt(S.bet)}` }[r.outcome];
+  if (r.hands && r.hands.length > 1) {
+    if (r.net > 0) return `Você ganhou +${fmt(r.net)}`;
+    if (r.net < 0) return `Você perdeu −${fmt(-r.net)}`;
+    return 'Empate no total';
+  }
+  const busted = S.hands[0] && handValue(S.hands[0].cards).total > 21;
+  return {
+    blackjack: `Blackjack! +${fmt(r.net)}`,
+    win: `Você ganhou +${fmt(r.net)}`,
+    push: 'Empate',
+    lose: busted ? `Estourou −${fmt(r.bet)}` : `Mesa ganhou −${fmt(r.bet)}`,
+  }[r.outcome];
 }
 
 /* ---------------- Aposta ---------------- */
@@ -301,17 +431,26 @@ function openBet() {
   if (!last.hidden) {
     const r = S.result;
     last.className = 'last ' + (r.outcome === 'blackjack' ? 'bj' : r.outcome === 'win' ? 'win' : r.outcome === 'lose' ? 'lose' : '');
-    last.textContent = `${resultText(r)} · ${handLabel(S.player)} × ${handLabel(S.dealer)}`;
+    last.textContent = `${resultText(r)} · ${S.hands.map((h) => handLabel(h.cards)).join(' / ')} × ${handLabel(S.dealer)}`;
   }
   $('#bet-err').textContent = S.money <= 0 ? 'Sem dinheiro. Use as trapaças ou comece um novo jogo.' : '';
   $('#deal-btn').disabled = S.money <= 0;
   showSheet('#bet-sheet');
   document.body.classList.add('betting');
+  placeBetLayer();
 }
+/** A tela de aposta começa logo abaixo da banca, para nunca ficar por cima dela. */
+function placeBetLayer() {
+  const layer = $('#bet-sheet');
+  if (layer.hidden) return;
+  const r = $('.bank').getBoundingClientRect();
+  layer.style.top = Math.round(r.bottom + 14) + 'px';
+}
+addEventListener('resize', placeBetLayer);
 function betValue() { return parseMoney($('#bet-input').value) || 0; }
 function fitBet() { const i = $('#bet-input'); i.style.width = (Math.max(1, i.value.length) + 0.5) + 'ch'; }
 function setBet(v) {
-  v = Math.max(0, Math.min(Math.round(v * 100) / 100, S.money));
+  v = Math.max(0, Math.min(round2(v), S.money));
   $('#bet-input').value = v ? String(v).replace('.', ',') : '';
   $('#bet-err').textContent = '';
   fitBet();
@@ -322,7 +461,7 @@ function renderMenu() {
   const ci = countInfo();
   // Próxima carta: quantas de cada valor ainda há no sapato
   const inShoe = {}; RANKS.forEach((r) => (inShoe[r] = 0)); S.shoe.forEach((c) => inShoe[c.r]++);
-  $$('#pick-rank button').forEach((b) => { const r = b.dataset.r; b.disabled = !inShoe[r]; b.querySelector('small').textContent = inShoe[r]; });
+  $$('#pick-rank button').forEach((b) => { const r = b.dataset.r; b.disabled = !inShoe[r]; $('small', b).textContent = inShoe[r]; });
 
   const nx = $('#next-cards');
   nx.hidden = !S.opts.showNext;
@@ -345,15 +484,16 @@ function renderMenu() {
   $('#cheat-next').checked = S.opts.showNext;
   $('#opt-count').checked = S.opts.showCount;
   $('#opt-hint').checked = S.opts.showHint;
+  $('#opt-sound').checked = S.opts.sound;
   $('#cheat-bj').textContent = S.rigBJ ? 'Blackjack armado ✓' : 'Próxima mão: blackjack';
 }
 
 function cheatMoney(mode) {
   const v = parseMoney($('#cheat-amount').value);
   if (!Number.isFinite(v) || v < 0) return toast('Valor inválido');
-  S.money = mode === 'add' ? Math.round((S.money + v) * 100) / 100 : v;
+  S.money = mode === 'add' ? round2(S.money + v) : v;
   S.stats.best = Math.max(S.stats.best, S.money);
-  save(); bump('up'); render();
+  save(); bump('up'); sound.play('bet'); render();
   if (!$('#bet-sheet').hidden) openBet();
   toast(mode === 'add' ? `+${fmt(v)} na banca` : `Banca definida em ${fmt(v)}`);
 }
@@ -361,7 +501,7 @@ function cheatMoney(mode) {
 function cheatWin() {
   if (S.phase !== 'player' && S.phase !== 'dealer') return toast('Comece uma rodada primeiro');
   if (busy && S.phase === 'player') return toast('Aguarde as cartas');
-  finish({ outcome: 'win', payout: S.bet * 2, forced: true });
+  finish(true);
   hideSheet('#menu-sheet');
 }
 
@@ -369,6 +509,7 @@ function pickNext(r) {
   const c = takeFromShoe((x) => x.r === r);
   if (!c) return toast(`Não há mais ${r} no sapato`);
   S.shoe.push(c); save(); render();
+  sound.play('tap');
   toast(`Próxima carta: ${c.r}${SUIT_SYMBOL[c.s]}`);
 }
 
@@ -381,27 +522,39 @@ function showSetup() {
   $('#table').hidden = true; hideSheet('#bet-sheet'); hideSheet('#menu-sheet');
   $('#setup').hidden = false;
 }
-function startTable() {
+async function startTable() {
   $('#setup').hidden = true; $('#table').hidden = false;
+  sound.setEnabled(S.opts.sound);
   render();
-  if (S.phase === 'dealer') dealerPlay();
-  else if (S.phase === 'player' && (isBlackjack(S.player) || isBlackjack(S.dealer) && (S.dealer[0].r === 'A' || cardValue(S.dealer[0]) === 10))) finish();
-  else if (S.phase === 'bet' || S.phase === 'done') openBet();
+  if (S.phase === 'dealer') return dealerPlay();
+  if (S.phase === 'player') {
+    const h = hand();
+    const first = S.hands.length === 1 && h.cards.length === 2;
+    const up = S.dealer[0];
+    if (first && (isBlackjack(h.cards) || (isBlackjack(S.dealer) && (up.r === 'A' || cardValue(up) === 10)))) return finish();
+    if (h.done || h.cards.length === 1) {          // app fechou no meio de um split
+      if (h.cards.length === 1) { h.cards.push(draw()); save(); render(); }
+      if (h.done || h.aces) return nextHand();
+    }
+    return;
+  }
+  openBet();
 }
 
 function bindSetup() {
   let decks = 6;
   const out = $('#setup-decks');
   const upd = () => { out.textContent = decks; $('#setup-cards').textContent = `${decks * 52} cartas`; };
-  $$('#setup .step').forEach((b) => b.addEventListener('click', () => { decks = Math.max(1, Math.min(8, decks + Number(b.dataset.step))); upd(); }));
-  $$('#setup-pen button').forEach((b) => b.addEventListener('click', () => $$('#setup-pen button').forEach((x) => x.setAttribute('aria-checked', x === b))));
+  $$('#setup .step').forEach((b) => b.addEventListener('click', () => { decks = Math.max(1, Math.min(8, decks + Number(b.dataset.step))); upd(); sound.play('tap'); }));
+  $$('#setup-pen button').forEach((b) => b.addEventListener('click', () => { $$('#setup-pen button').forEach((x) => x.setAttribute('aria-checked', x === b)); sound.play('tap'); }));
   $('#setup-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const m = parseMoney($('#setup-money').value);
     if (!Number.isFinite(m) || m <= 0) { toast('Informe um valor maior que zero'); return; }
     const pen = Number($('#setup-pen [aria-checked=true]').dataset.pen);
-    S = newState(m, decks, pen);
+    S = newState(m, decks, pen, S ? { sound: S.opts.sound } : {});
     save();
+    sound.play('shuffle');
     startTable();
   });
   upd();
@@ -411,6 +564,7 @@ function bindTable() {
   $('#btn-hit').addEventListener('click', hit);
   $('#btn-stand').addEventListener('click', stand);
   $('#btn-double').addEventListener('click', double);
+  $('#btn-split').addEventListener('click', split);
 
   $('#bet-form').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -420,27 +574,32 @@ function bindTable() {
     deal(v);
   });
   $('#bet-input').addEventListener('input', fitBet);
-  $$('#bet-sheet [data-add]').forEach((b) => b.addEventListener('click', () => setBet(betValue() + Number(b.dataset.add))));
+  $$('#bet-sheet [data-add]').forEach((b) => b.addEventListener('click', () => { setBet(betValue() + Number(b.dataset.add)); sound.play('chip'); }));
   $$('#bet-sheet [data-op]').forEach((b) => b.addEventListener('click', () => {
     const v = betValue();
     setBet({ clear: 0, half: Math.floor(v / 2), double: v * 2, max: S.money }[b.dataset.op]);
+    sound.play('tap');
   }));
 
-  $('#open-menu').addEventListener('click', () => { renderMenu(); showSheet('#menu-sheet'); });
+  $('#open-menu').addEventListener('click', () => { renderMenu(); showSheet('#menu-sheet'); sound.play('tap'); });
   $('#close-menu').addEventListener('click', () => hideSheet('#menu-sheet'));
   $('#menu-sheet').addEventListener('click', (e) => { if (e.target.id === 'menu-sheet') hideSheet('#menu-sheet'); });
   addEventListener('keydown', (e) => {
     if (e.key === 'Escape') hideSheet('#menu-sheet');
     if (!$('#menu-sheet').hidden || !$('#bet-sheet').hidden || $('#table').hidden) return;
-    if (e.key === 'h') hit(); if (e.key === 's') stand(); if (e.key === 'd') double();
+    if (e.key === 'h') hit();
+    if (e.key === 's') stand();
+    if (e.key === 'd') double();
+    if (e.key === 'p') split();
   });
 
   $('#cheat-add').addEventListener('click', () => cheatMoney('add'));
   $('#cheat-set').addEventListener('click', () => cheatMoney('set'));
   $('#cheat-win').addEventListener('click', cheatWin);
   $('#cheat-bj').addEventListener('click', () => { S.rigBJ = !S.rigBJ; save(); renderMenu(); toast(S.rigBJ ? 'A próxima mão será blackjack' : 'Blackjack desarmado'); });
-  const opt = (id, key) => $(id).addEventListener('change', (e) => { S.opts[key] = e.target.checked; save(); render(); });
+  const opt = (id, key, after) => $(id).addEventListener('change', (e) => { S.opts[key] = e.target.checked; if (after) after(); save(); render(); });
   opt('#cheat-hole', 'showHole'); opt('#cheat-next', 'showNext'); opt('#opt-count', 'showCount'); opt('#opt-hint', 'showHint');
+  opt('#opt-sound', 'sound', () => { sound.setEnabled(S.opts.sound); sound.play('chip'); });
 
   $('#pick-rank').innerHTML = RANKS.map((r) => `<button type="button" data-r="${r}">${r}<small></small></button>`).join('');
   $$('#pick-rank button').forEach((b) => b.addEventListener('click', () => pickNext(b.dataset.r)));
@@ -452,16 +611,22 @@ function bindTable() {
   $('#new-game').addEventListener('click', () => {
     if (!confirm('Começar um novo jogo? A banca e o sapato atuais serão apagados.')) return;
     try { localStorage.removeItem(KEY); } catch { /* ignore */ }
-    S = null; showSetup();
+    hideSheet('#menu-sheet');
+    showSetup();
   });
 }
 
 function init() {
+  // O áudio só pode começar depois de um toque do usuário
+  const unlock = () => sound.unlock();
+  addEventListener('pointerdown', unlock, { capture: true });
+  addEventListener('keydown', unlock, { capture: true });
+
   bindSetup();
   bindTable();
   S = load();
   if (S && S.v === 1 && S.settings) startTable();
-  else showSetup();
+  else { S = null; showSetup(); }
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
