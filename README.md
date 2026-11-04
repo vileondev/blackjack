@@ -1,5 +1,6 @@
 # Blackjack
 
+
 Blackjack no navegador, mobile first, que funciona offline (PWA) e guarda tudo no aparelho.
 
 ## Como jogar
